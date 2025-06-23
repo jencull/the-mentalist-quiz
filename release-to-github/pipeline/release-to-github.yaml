@@ -13,7 +13,7 @@ spec:
     - name: verify_ec_task_bundle
       type: string
       description: The location of the bundle containing the verify-enterprise-contract task
-      default: "quay.io/enterprise-contract/ec-task-bundle:4b1df9d909379748b1945f10a7f5f802e4b06108"
+      default: "quay.io/enterprise-contract/ec-task-bundle:latest"
     - name: enterpriseContractPolicy
       type: string
       description: EnterpriseContractPolicy that needs to be executed
