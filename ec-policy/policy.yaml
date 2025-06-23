@@ -24,7 +24,7 @@ sources:
       - github.com/release-engineering/rhtap-ec-policy//data
       - oci::quay.io/konflux-ci/tekton-catalog/data-acceptable-bundles:latest
     policy:
-      - oci::quay.io/enterprise-contract/ec-release-policy:latest
+      - oci::quay.io/enterprise-contract/ec-release-policy:konflux
       - github.com/dheerajodha/the-mentalist-quiz.git//ec-policy/rules
 configuration:
   include:
