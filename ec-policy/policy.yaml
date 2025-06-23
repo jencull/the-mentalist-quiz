@@ -20,10 +20,14 @@ description: >-
 
 sources:
   - name: Custom Policy
+    data:
+      - github.com/release-engineering/rhtap-ec-policy//data
+      - oci::quay.io/konflux-ci/tekton-catalog/data-acceptable-bundles:latest
     policy:
       - oci::quay.io/enterprise-contract/ec-release-policy:latest
       - github.com/dheerajodha/the-mentalist-quiz.git//ec-policy/rules
 configuration:
   include:
+    - "@redhat"
     - verify_base_go_version
     - cve
