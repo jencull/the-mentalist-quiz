@@ -1,0 +1,15 @@
+name: PR Size Label
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  size-label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label PR by size
+        uses: conforma/pr-size-label-action@v1.0.0
