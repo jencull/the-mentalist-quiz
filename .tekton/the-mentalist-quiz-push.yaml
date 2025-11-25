@@ -14,7 +14,7 @@ metadata:
     appstudio.openshift.io/component: the-mentalist-quiz
     pipelines.appstudio.openshift.io/type: build
   name: the-mentalist-quiz-on-push
-  namespace: rhn-support-djodha-tenant
+  namespace: rh-ee-jcullina-tenant
 spec:
   params:
   - name: git-url
@@ -22,9 +22,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/redhat-user-workloads/rhn-support-djodha-tenant/the-mentalist-quiz/the-mentalist-quiz:{{revision}}
+    value: quay.io/redhat-user-workloads/rh-ee-jcullina-tenant/the-mentalist-quiz/the-mentalist-quiz:{{revision}}
   - name: dockerfile
     value: Dockerfile
+  - name: log-quay-repo
+    value: quay.io/rh-ee-jcullina/logs
+  - name: log-quay-user
+    value: $(secrets.log-exporter-creds.username)
+  - name: log-quay-token
+    value: $(secrets.log-exporter-creds.token)
+  - name: shared-workspace-name
+    value: workspace
   pipelineSpec:
     finally:
     - name: show-sbom
@@ -40,6 +48,23 @@ spec:
         - name: kind
           value: task
         resolver: bundles
+    - name: export-logs-for-retention
+      taskRef:
+        name: export-pipeline-logs-simple-push
+      params:
+        - name: pipeline-run-name
+          value: $(context.pipelineRun.name)
+        - name: namespace
+          value: $(context.pipelineRun.namespace)
+        - name: quay-repo
+          value: $(params.log-quay-repo)
+        - name: quay-username
+          value: $(params.log-quay-user)
+        - name: quay-password
+          value: $(params.log-quay-token)
+      workspaces:
+        - name: shared-data
+          workspace: $(params.shared-workspace-name)
     params:
     - description: Source Repository URL
       name: git-url
@@ -88,6 +113,18 @@ spec:
     - default: "false"
       description: Add built image into an OCI image index
       name: build-image-index
+      type: string
+    - description: Fully qualified Quay repo for storing logs
+      name: log-quay-repo
+      type: string
+    - description: Quay Robot Account Username for log export
+      name: log-quay-user
+      type: string
+    - description: Quay Robot Account Token for log export
+      name: log-quay-token
+      type: string
+    - description: Name of the shared workspace
+      name: shared-workspace-name
       type: string
     - default: []
       description: Array of --build-arg values ("arg=value" strings) for buildah
