@@ -474,7 +474,7 @@ spec:
     - name: netrc
       optional: true
   taskRunTemplate:
-    serviceAccountName: build-pipeline-jen-the-mentalist-quiz
+    serviceAccountName: build-pipeline-the-mentalist-quiz
   workspaces:
   - name: git-auth
     secret:
