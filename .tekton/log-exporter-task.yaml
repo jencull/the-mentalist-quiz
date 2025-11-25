@@ -1,0 +1,123 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: export-pipeline-logs-simple-push
+  labels:
+    app.kubernetes.io/managed-by: tekton
+spec:
+  description: |
+    Gathers all logs from a completed Tekton PipelineRun, packages them into a simple
+    "FROM scratch" image artifact, and pushes the image to a specified Quay repository for long-term retention.
+  params:
+    - name: quay-repo
+      type: string
+      description: The full path to the Quay repository (e.g., quay.io/rh-ee-jcullina/logs).
+    - name: quay-username
+      type: string
+      description: The Quay Robot Account username (e.g., my-org+robot).
+    - name: quay-password
+      type: string
+      description: The Quay Robot Account token.
+    - name: pipeline-run-name
+      type: string
+      description: The name of the PipelineRun whose logs should be collected.
+    - name: namespace
+      type: string
+      description: The namespace where the PipelineRun was executed.
+      default: "$(context.pipelineRun.namespace)"
+      
+  workspaces:
+    - name: shared-data
+      description: Workspace for log archiving and image creation files.
+
+  steps:
+    - name: fetch-and-prepare-logs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: $(workspaces.shared-data.path)
+      env:
+        - name: PR_NAME
+          value: "$(params.pipeline-run-name)"
+        - name: PR_NAMESPACE
+          value: "$(params.namespace)"
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+        
+        LOG_FILENAME="${PR_NAME}-all-logs.txt"
+        ARCHIVE_FILENAME="logs.tar.gz"
+        IMAGE_TAG="${PR_NAME}-$(date +%Y%m%d%H%M%S)"
+
+        echo "Starting log export for PipelineRun: ${PR_NAME}"
+        
+        # Determine CLI (oc for OpenShift, kubectl otherwise)
+        CMD="oc"
+        if ! command -v oc &> /dev/null; then
+          CMD="kubectl"
+        fi
+
+        # Fetch all logs from the PipelineRun
+        # Tries the simple --all command first
+        ${CMD} logs --namespace "${PR_NAMESPACE}" pipelinerun/"${PR_NAME}" --all > "${LOG_FILENAME}" 2>/dev/null || {
+            echo "Attempting log retrieval for older clusters by tasks..."
+            # Fallback for older clusters: loop through all TaskRuns and concatenate logs
+            ${CMD} get pr "${PR_NAME}" -o json -n "${PR_NAMESPACE}" | jq -r '.status.childReferences[].name' | while read taskrun; do
+              ${CMD} logs --namespace "${PR_NAMESPACE}" taskrun/"${taskrun}" --all >> "${LOG_FILENAME}" 2>/dev/null || true
+            done
+        }
+        
+        if [ -s "${LOG_FILENAME}" ]; then
+            echo "Successfully fetched logs."
+            
+            # 2. Compress the log file.
+            tar -czf "${ARCHIVE_FILENAME}" "${LOG_FILENAME}"
+            echo "Created compressed archive: ${ARCHIVE_FILENAME}"
+            
+            # 3. Create a simple Dockerfile to package the archive
+            cat <<EOF > Dockerfile
+            FROM scratch
+            LABEL konflux-log-archive-name="${IMAGE_TAG}"
+            COPY ${ARCHIVE_FILENAME} /
+            EOF
+            echo "Created Dockerfile for log artifact."
+
+            # 4. Save the IMAGE_TAG for the next step's script
+            echo -n "${IMAGE_TAG}" > $(workspaces.shared-data.path)/IMAGE_TAG
+        else
+            echo "Warning: Log file is empty. Skipping artifact creation."
+            exit 0
+        fi
+
+    - name: build-and-push-to-quay
+      image: 'quay.io/buildah/stable:latest'
+      workingDir: $(workspaces.shared-data.path)
+      env:
+        - name: QUAY_REPO
+          value: $(params.quay-repo)
+        - name: QUAY_USERNAME
+          value: $(params.quay-username)
+        - name: QUAY_PASSWORD
+          value: $(params.quay-password)
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        IMAGE_TAG=$(cat $(workspaces.shared-data.path)/IMAGE_TAG 2>/dev/null || echo "")
+        
+        if [ -z "${IMAGE_TAG}" ]; then
+            echo "Skipping push step, log archive not found."
+            exit 0
+        fi
+
+        FULL_IMAGE_URL="${QUAY_REPO}:${IMAGE_TAG}"
+        REGISTRY_HOST="${QUAY_REPO%%/*}"
+        
+        echo "Logging into Quay.io..."
+        podman login -u "${QUAY_USERNAME}" -p "${QUAY_PASSWORD}" "${REGISTRY_HOST}"
+
+        echo "Building log artifact image..."
+        podman build -t "${FULL_IMAGE_URL}" -f Dockerfile .
+
+        echo "Pushing log artifact to Quay: ${FULL_IMAGE_URL}"
+        podman push "${FULL_IMAGE_URL}"
+        
+        echo "Log artifact successfully uploaded to Quay.io"
